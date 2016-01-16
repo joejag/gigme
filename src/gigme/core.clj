@@ -9,6 +9,26 @@
 
 (def api "http://api.setlist.fm/rest")
 
+(defn setlist-fm-search [context]
+  (-> 
+   (str api context)
+   client/get
+   :body
+   (json/read-str :key-fn keyword)))
+
+(defn find-artist [artist]
+  (-> 
+   (setlist-fm-search (str "/0.1/search/artists.json?artistName=" artist))
+   :artists
+   :artist))
+
+(defn find-setlists [artist]
+  (->
+   (setlist-fm-search (str "/0.1/artist/" (get artist (keyword "@mbid")) "/setlists.json"))
+   :setlists))
+ 
+;; parsing
+
 (defn closest-artist [artists artist]
   (if (map? artists) artists  
       (last
@@ -16,37 +36,17 @@
         (fn [cand] (metrics/jaro artist (get cand (keyword "@name")))) 
         artists))))
 
-(defn find-artist [artist]
-  (-> 
-   (str api "/0.1/search/artists.json?artistName=" artist)
-   client/get
-   :body
-   (json/read-str :key-fn keyword)
-   :artists
-   :artist
-   (closest-artist artist)))
-
-(defn setlists [artist]
-  (->
-   (str api "/0.1/artist/" (get artist (keyword "@mbid")) "/setlists.json")
-   client/get
-   :body
-   (json/read-str :key-fn keyword)
-   :setlists))
- 
-;; parsing
-
 (defn gigs [response]
   (json-path/at-path "$.setlist[*].sets[*]" response))
 
 (defn songs [response]
- (json-path/at-path "$.setlist[*].sets.set[*].song" response))
+  (json-path/at-path "$.setlist[*].sets.set[*].song" response))
 
 (defn songs-per-gig [songs gigs]
   (int (/ (count songs) (count gigs))))
 
 (defn popular-songs-stats [songs]
- (reverse 
+  (reverse 
    (sort-by second 
             (frequencies (map (keyword "@name") songs)))))
 
@@ -58,12 +58,15 @@
 
 ;; go
 
-(def artist "weezer")
+(defn print-artists-probable-gig [artist]
+  (println "=================================")
+  (clojure.pprint/pprint (str api "/0.1/search/artists.json?artistName=" artist))
+  (let [artist-response (find-artist artist)
+        probable-artist (closest-artist artist-response artist)
+        gigs-response (find-setlists probable-artist)]
+    (clojure.pprint/pprint probable-artist)
+    (clojure.pprint/pprint (probable-gig gigs-response))))
 
-(def artist-response (find-artist artist))
-(def gigs-response (setlists artist-response))
 
-(println "=================================")
-(clojure.pprint/pprint (str api "/0.1/search/artists.json?artistName=" artist))
-(clojure.pprint/pprint artist-response)
-(clojure.pprint/pprint (probable-gig gigs-response))
+(defn -main [artist]
+  (print-artists-probable-gig artist))
