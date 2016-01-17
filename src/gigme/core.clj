@@ -10,22 +10,22 @@
 (def api "http://api.setlist.fm/rest")
 
 (defn setlist-fm-search [context]
-  (-> 
-   (str api context)
-   client/get
-   :body
-   (json/read-str :key-fn keyword)))
+  (try (-> 
+        (str api context)
+        (client/get)
+        :body
+        (json/read-str :key-fn keyword))
+       (catch Exception e 
+         [])))
 
 (defn find-artist [artist]
   (-> 
    (setlist-fm-search (str "/0.1/search/artists.json?artistName=" artist))
-   :artists
-   :artist))
+   (get-in [:artists :artist])))
 
 (defn find-setlists [artist]
   (->
-   (setlist-fm-search (str "/0.1/artist/" (get artist (keyword "@mbid")) "/setlists.json"))
-   :setlists))
+   (setlist-fm-search (str "/0.1/artist/" (get artist (keyword "@mbid")) "/setlists.json"))))
  
 ;; parsing
 
@@ -37,13 +37,14 @@
         artists))))
 
 (defn gigs [response]
-  (json-path/at-path "$.setlist[*].sets[*]" response))
+  (json-path/at-path "$.setlists.setlist[*].sets[*]" response))
 
 (defn songs [response]
-  (json-path/at-path "$.setlist[*].sets.set[*].song" response))
+  (json-path/at-path "$.setlists.setlist[*].sets.set[*].song" response))
 
 (defn songs-per-gig [songs gigs]
-  (int (/ (count songs) (count gigs))))
+  (if (zero? (count songs)) 0 
+      (int (/ (count songs) (count gigs)))))
 
 (defn popular-songs-stats [songs]
   (reverse 
@@ -58,15 +59,13 @@
 
 ;; go
 
-(defn print-artists-probable-gig [artist]
-  (println "=================================")
-  (clojure.pprint/pprint (str api "/0.1/search/artists.json?artistName=" artist))
-  (let [artist-response (find-artist artist)
-        probable-artist (closest-artist artist-response artist)
-        gigs-response (find-setlists probable-artist)]
-    (clojure.pprint/pprint probable-artist)
-    (clojure.pprint/pprint (probable-gig gigs-response))))
+(defn find-closest-artist [artist]
+  (-> artist
+      (find-artist)
+      (closest-artist artist)))
+
+(defn artists-probable-gig [artist]
+  (let [gigs-response (find-setlists artist)]
+    (probable-gig gigs-response)))
 
 
-(defn -main [artist]
-  (print-artists-probable-gig artist))
